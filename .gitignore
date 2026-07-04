@@ -1,0 +1,6 @@
+# build artifacts
+oracle/native/target/
+lean/**/.lake/
+__pycache__/
+# local measurement runs (see docs/corpus.md)
+corpus/

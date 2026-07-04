@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: oracle (cargo test + musl check)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: oracle/native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+          components: rustfmt, clippy
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: oracle/native
+      - run: cargo fmt --check
+      - run: cargo clippy --release --all-targets -- -D warnings
+      - run: cargo test --release
+      # releases ship musl-static; catch musl breakage on every PR, not at tag time
+      - run: cargo check --release --target x86_64-unknown-linux-musl
+
+  lean:
+    name: lean (build + smoke + drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: oracle/native
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Cache lake packages
+        uses: actions/cache@v4
+        with:
+          path: lean/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lakefile.toml') }}
+      - name: Build (Mathlib from olean cache)
+        working-directory: lean
+        run: |
+          lake exe cache get
+          lake build Farkas Farkas.GrindFast farkas-fetch
+      - name: Env linters (Batteries runLinter)
+        working-directory: lean
+        run: lake exe runLinter Farkas
+      - name: Mathlib drift alarm
+        run: scripts/check-mathlib-drift.sh
+      - name: Build daemon
+        run: cargo build --release --manifest-path oracle/native/Cargo.toml
+      - name: Smoke test (with daemon — fast path active)
+        working-directory: lean
+        env:
+          FARKAS_NATIVE_BIN: ${{ github.workspace }}/oracle/native/target/release/farkas-oracled
+        run: lake env lean tests/instrument_smoke.lean
+      - name: Smoke test (without daemon — silent degradation)
+        working-directory: lean
+        run: lake env lean tests/instrument_smoke.lean
+      - name: Smoke test (grind fact-selection prototype)
+        working-directory: lean
+        env:
+          FARKAS_NATIVE_BIN: ${{ github.workspace }}/oracle/native/target/release/farkas-oracled
+        run: lake env lean tests/grind_fast_smoke.lean
+      - name: farkas-fetch e2e (local mock release)
+        working-directory: lean
+        run: |
+          REL=$(mktemp -d)
+          TARGET=x86_64-unknown-linux-musl
+          tar czf "$REL/farkas-oracled-$TARGET.tar.gz" \
+            -C ../oracle/native/target/release farkas-oracled
+          (cd "$REL" && sha256sum *.tar.gz > SHA256SUMS)
+          rm -rf .lake/farkas
+          FARKAS_FETCH_BASE_URL="file://$REL" lake exe farkas-fetch
+          test -x .lake/farkas/farkas-oracled
+      - name: Differential gate (MathlibTest linarith, stock vs fast)
+        env:
+          FARKAS_NATIVE_BIN: ${{ github.workspace }}/oracle/native/target/release/farkas-oracled
+        run: python3 scripts/differential.py
+      - name: Stress (parallel elaboration through one daemon)
+        env:
+          FARKAS_NATIVE_BIN: ${{ github.workspace }}/oracle/native/target/release/farkas-oracled
+        run: python3 scripts/stress.py --n 150

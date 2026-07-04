@@ -1,0 +1,20 @@
+name = "farkas"
+version = "0.1.0"
+defaultTargets = ["Farkas"]
+
+# The package shadows the `linarith` tactic elaborator (no Mathlib rebuild
+# needed — Mathlib comes prebuilt via cache). Pinned to the release matching
+# lean-toolchain.
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.31.0"
+
+[[lean_lib]]
+name = "Farkas"
+
+# Downloads the prebuilt daemon into `.lake/farkas/` (see Farkas/Fetch.lean).
+# Mathlib-free on purpose: usable before the first `lake build`.
+[[lean_exe]]
+name = "farkas-fetch"
+root = "Farkas.Fetch"
