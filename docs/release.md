@@ -16,8 +16,9 @@ Mathlib release. `main` tracks the latest supported Mathlib stable.
 
 1. CI green on `main` (includes the drift alarm and the musl check).
 2. Bump `Farkas.Fetch.defaultTag` in `lean/Farkas/Fetch.lean` to the new tag.
-3. `git tag v<mathlib>-farkas.<n> && git push --tags`.
-4. `release.yml` builds `farkas-oracled` for the five targets and attaches
+3. Add a `CHANGELOG.md` entry for the tag (move the `Unreleased` items down).
+4. `git tag v<mathlib>-farkas.<n> && git push --tags`.
+5. `release.yml` builds `farkas-oracled` for the five targets and attaches
    tarballs + `SHA256SUMS` to the GitHub Release:
 
    | target | linkage |
@@ -37,6 +38,36 @@ verifies it against `SHA256SUMS`, unpacks into `.lake/farkas/`, and asks the
 binary for `--version`. Unsupported platforms get a cargo-build fallback
 message; a missing binary never breaks a build (stock linarith + one-time
 note).
+
+## crates.io (`farkas-core`)
+
+The Rust crate is also published to crates.io as
+[`farkas-core`](https://crates.io/crates/farkas-core). This is a secondary
+channel: Lean users get prebuilt binaries via `lake exe farkas-fetch`;
+`cargo install farkas-core` is the from-source path for anyone who prefers
+building over downloading (it installs both `farkas-oracled` and
+`farkas-bench`).
+
+Two version axes, on purpose: repository tags track Mathlib compatibility
+(`v4.31.0-farkas.1`), while the crate carries its own semver (the daemon
+reports it in `--version`; the Lean client only checks the protocol version
+in the handshake, so the two move independently). Because release-asset URLs
+contain the Mathlib-tracking tag, there is no `cargo binstall` metadata —
+binstall derives download URLs from the crate version, which cannot name the
+tag. Prebuilt binaries are farkas-fetch's job.
+
+Publishing (only when the Rust side changed; after the tag is pushed):
+
+1. Bump `version` in `oracle/native/Cargo.toml` (0.x semver: breaking changes
+   bump the minor) and note the crate version in the `CHANGELOG.md` entry.
+2. `rust-version` is a claim CI does not currently gate: if the code starts
+   using a newer language feature, re-verify with
+   `cargo +<rust-version> check --all-targets` and bump it.
+3. Rehearse: `cargo publish --dry-run --manifest-path oracle/native/Cargo.toml`
+   (packages + verify-builds without uploading; this is what catches a
+   too-narrow `include` whitelist).
+4. Publish: `cargo publish --manifest-path oracle/native/Cargo.toml`.
+   Publishes are permanent — a bad version can only be yanked, never deleted.
 
 ## Syncing to a new Mathlib release
 

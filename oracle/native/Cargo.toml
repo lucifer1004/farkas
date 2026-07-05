@@ -2,9 +2,19 @@
 name = "farkas-core"
 version = "0.1.0"
 edition = "2024"
+# floor set by let-chains (stabilized 1.88, edition-2024-only); CI tracks
+# stable, so this is the oldest toolchain the crate claims to build on
+rust-version = "1.88"
 description = "Exact tiered-rational Farkas-certificate engines for Lean's linarith"
 license = "Apache-2.0"
 repository = "https://github.com/lucifer1004/farkas"
+homepage = "https://github.com/lucifer1004/farkas"
+keywords = ["lean", "theorem-proving", "linear-arithmetic", "simplex", "farkas"]
+categories = ["mathematics", "algorithms"]
+# Publish whitelist — ship only what the crate needs to build: library and
+# binary sources. Tests, fixtures, and local scratch stay out of the package
+# (Cargo adds Cargo.toml and Cargo.lock itself).
+include = ["src/**/*.rs"]
 
 [lib]
 name = "farkas_core"
