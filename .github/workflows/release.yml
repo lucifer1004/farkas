@@ -1,0 +1,77 @@
+name: Release
+
+# Tag scheme: v<mathlib release>-farkas.<n>, e.g. v4.31.0-farkas.1
+# (see docs/release.md). Artifacts are what `lake exe farkas-fetch` downloads.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl,  os: ubuntu-latest,    musl: true }
+          # musl-tools ships only the unprefixed musl-gcc wrapper (arch-native
+          # on the arm runner); cc-rs would otherwise look for
+          # aarch64-linux-musl-gcc, which apt does not provide
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, musl: true,
+              cc_env: "musl-gcc" }
+          - { target: aarch64-apple-darwin,       os: macos-latest }
+          - { target: x86_64-apple-darwin,        os: macos-latest }
+          - { target: x86_64-pc-windows-msvc,     os: windows-latest,
+              rustflags: "-C target-feature=+crt-static" }
+    defaults:
+      run:
+        working-directory: oracle/native
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags || '' }}
+      CC_aarch64_unknown_linux_musl: ${{ matrix.cc_env || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl toolchain
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo test --release
+      - run: cargo build --release --target ${{ matrix.target }} --bin farkas-oracled
+      - name: Package
+        shell: bash
+        run: |
+          BIN=farkas-oracled
+          [[ "${{ matrix.target }}" == *windows* ]] && BIN=farkas-oracled.exe
+          tar czf "farkas-oracled-${{ matrix.target }}.tar.gz" \
+            -C "target/${{ matrix.target }}/release" "$BIN"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: farkas-oracled-${{ matrix.target }}
+          path: oracle/native/farkas-oracled-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: sha256sum farkas-oracled-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/farkas-oracled-*.tar.gz
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true

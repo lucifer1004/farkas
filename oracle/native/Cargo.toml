@@ -1,0 +1,25 @@
+[package]
+name = "farkas-core"
+version = "0.1.0"
+edition = "2024"
+description = "Exact tiered-rational Farkas-certificate engines for Lean's linarith"
+license = "Apache-2.0"
+repository = "https://github.com/lucifer1004/farkas"
+
+[lib]
+name = "farkas_core"
+
+[dependencies]
+# division-based gcd for the Big tier (num-bigint's Stein gcd degrades ~50x
+# on the correlated operands simplex produces; see rat.rs big_gcd)
+dashu-int = "0.4"
+# global allocator: the BigRational tail and rayon batch mode are
+# allocation-heavy, and the release binaries are musl-static (musl's malloc
+# degrades badly under multithreaded allocation)
+mimalloc = "0.1"
+num-bigint = "0.4"
+num-integer = "0.1"
+num-rational = "0.4"
+num-traits = "0.2"
+rayon = "1"
+serde_json = { version = "1", features = ["arbitrary_precision"] }

@@ -1,0 +1,57 @@
+name: Nightly corpus differential
+
+# Regenerates a real-prover corpus from its public source at runtime
+# (recipe-not-payloads: nothing is committed or cached) and asserts that the
+# fast path produces identical compile outcomes to stock on it. Separate from
+# ci.yml on purpose: external-source flakiness must never block PRs.
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "number of corpus files (0 = all 438; ~2x50s each)"
+        default: "120"
+
+jobs:
+  corpus-differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: oracle/native
+      - name: Build daemon
+        run: cargo build --release --manifest-path oracle/native/Cargo.toml
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Cache lake packages
+        uses: actions/cache@v6
+        with:
+          path: lean/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lakefile.toml') }}
+      - name: Build (Mathlib from olean cache)
+        working-directory: lean
+        run: |
+          lake exe cache get
+          lake build Farkas
+      - name: Acquire corpus (runtime download, never committed)
+        run: python3 scripts/farkas-corpus.py acquire --from-dsv2
+      - name: Outcome differential (stock vs fast)
+        env:
+          FARKAS_NATIVE_BIN: ${{ github.workspace }}/oracle/native/target/release/farkas-oracled
+        run: |
+          python3 scripts/farkas-corpus.py diff \
+            --src corpus/dsv2-download --out /tmp/nightly \
+            --jobs 4 --limit "${{ github.event.inputs.limit || '120' }}"
+      - name: Upload outcome logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-outcomes
+          path: /tmp/nightly/*/files.jsonl
+          if-no-files-found: ignore
